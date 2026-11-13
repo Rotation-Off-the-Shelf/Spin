@@ -106,6 +106,9 @@
       </div>
 
       <div class="flex items-center gap-2">
+        <button id="info-toggle" type="button" aria-label="Über SpinBias" class="px-2.5 py-1.5 text-[11px] font-mono uppercase border border-obsidian/25 dark:border-offwhite/25 hover:border-signal transition-colors rounded-sm">
+          ? Info
+        </button>
         <button id="theme-toggle" type="button" aria-label="Farbschema wechseln" class="px-2.5 py-1.5 text-[11px] font-mono uppercase border border-obsidian/25 dark:border-offwhite/25 hover:border-signal transition-colors rounded-sm">
           <span id="theme-label">Dark</span>
         </button>
@@ -125,6 +128,23 @@
       <!-- TAB 1: AUSWAHL (SPIN)                                     -->
       <!-- ========================================================= -->
       <section id="view-spin" class="p-4 space-y-5">
+
+        <!-- Intro / Onboarding Box -->
+        <div id="intro-banner" class="border border-obsidian/20 dark:border-offwhite/20 bg-white dark:bg-charcoal p-3.5 rounded-sm relative">
+          <button type="button" id="close-intro-btn" aria-label="Intro schließen" class="absolute top-2.5 right-2.5 text-[11px] font-mono uppercase opacity-55 hover:opacity-100 hover:text-signal px-1.5 py-0.5">
+            ✕
+          </button>
+          <p class="text-xs font-extrabold tracking-tight pr-6">Du hörst die Musik vor lauter Platten nicht?</p>
+          <p class="text-xs opacity-75 leading-relaxed mt-1">
+            Zeit, wieder in den eigenen Schätzen zu graben. <strong class="font-semibold text-obsidian dark:text-offwhite">SpinBias</strong> wählt dein nächstes Hörerlebnis – fairer als reiner Zufall, mit Artist-Ausgleich, deinen Bewertungen und Stapel-Modus.
+          </p>
+          <div class="flex items-center gap-3 mt-2.5 pt-2 border-t border-obsidian/10 dark:border-offwhite/10 text-[10px] font-mono uppercase">
+            <button type="button" onclick="switchTab('import')" class="text-signal underline underline-offset-2 font-bold">
+              Eigene Discogs-Sammlung laden →
+            </button>
+            <span class="opacity-50">oder Demo direkt testen</span>
+          </div>
+        </div>
 
         <!-- Filter Bar (Compact) -->
         <div class="space-y-2">
@@ -507,7 +527,7 @@
     const STORAGE_KEY = 'vsa_prototype_state_v1';
     const TOKEN_STORAGE_KEY = 'vsa_discogs_token';
     const USERNAME_STORAGE_KEY = 'vsa_discogs_username';
-
+    const INTRO_DISMISSED_KEY = 'spinbias_intro_dismissed';
     // Curated realistic sample collection (including multiple releases per artist to demonstrate Artist Balance)
     const SAMPLE_RELEASES = [
       { id: 'r1', releaseId: '418574', artist: 'ISIS', title: 'Oceanic', label: 'Ipecac Recordings', format: 'LP, Album, Reissue', released: 2002, rating: 5, coverUrl: '', notes: 'Seite B („The Beginning and the End“) perfekt für späte Abende.' },
@@ -1905,6 +1925,25 @@
         state.settings.darkMode = !state.settings.darkMode;
         saveState();
         renderAll();
+      });
+
+      // Intro Banner & Info Toggle
+      const introBanner = document.getElementById('intro-banner');
+      if (localStorage.getItem(INTRO_DISMISSED_KEY) === '1') {
+        introBanner.classList.add('hidden');
+      }
+      document.getElementById('close-intro-btn').addEventListener('click', () => {
+        introBanner.classList.add('hidden');
+        localStorage.setItem(INTRO_DISMISSED_KEY, '1');
+      });
+      document.getElementById('info-toggle').addEventListener('click', () => {
+        const isHidden = introBanner.classList.toggle('hidden');
+        if (isHidden) {
+          localStorage.setItem(INTRO_DISMISSED_KEY, '1');
+        } else {
+          localStorage.removeItem(INTRO_DISMISSED_KEY);
+          switchTab('spin');
+        }
       });
 
       // Spin & Result Actions
