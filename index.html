@@ -1,0 +1,2100 @@
+<!DOCTYPE html>
+<html lang="de" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SpinBias — Weighted Record Selector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            signal: '#FF3B00',
+            offwhite: '#F5F4F0',
+            obsidian: '#0D0D0D',
+            charcoal: '#171717',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      overscroll-behavior-y: none;
+    }
+
+    /* Custom minimalist Range Sliders */
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: currentColor;
+      outline: none;
+      opacity: 0.85;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      background: #FF3B00;
+      border: 2px solid currentColor;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      background: #FF3B00;
+      border: 2px solid currentColor;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    /* Hide scrollbars cleanly */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    @keyframes pulse-border {
+      0%, 100% { border-color: #FF3B00; }
+      50% { border-color: transparent; }
+    }
+    .spinning-frame {
+      animation: pulse-border 0.2s infinite;
+    }
+  </style>
+</head>
+<body class="bg-neutral-200 dark:bg-neutral-950 text-obsidian dark:text-offwhite min-h-screen flex justify-center selection:bg-signal selection:text-white">
+
+  <!-- App Container (Mobile-First Frame on Desktop, Fullscreen on Mobile) -->
+  <div id="app" class="w-full max-w-md bg-offwhite dark:bg-obsidian min-h-screen sm:min-h-[840px] sm:my-4 sm:border sm:border-obsidian/20 dark:sm:border-offwhite/20 flex flex-col justify-between relative overflow-x-hidden">
+
+    <!-- Top Header -->
+    <header class="sticky top-0 z-30 bg-offwhite/95 dark:bg-obsidian/95 backdrop-blur-sm border-b border-obsidian/15 dark:border-offwhite/15 px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-3.5 h-3.5 bg-signal inline-block"></div>
+        <div>
+          <h1 class="text-xs font-extrabold tracking-widest uppercase leading-none">SpinBias</h1>
+          <p class="text-[10px] font-mono opacity-60 tracking-wider uppercase mt-0.5">
+            Record Selector • <span id="header-pool-count">0</span> aktiv
+            <span id="header-cover-sync-badge" class="hidden text-signal font-bold"> • Cover-Sync</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="theme-toggle" type="button" aria-label="Farbschema wechseln" class="px-2.5 py-1.5 text-[11px] font-mono uppercase border border-obsidian/25 dark:border-offwhite/25 hover:border-signal transition-colors rounded-sm">
+          <span id="theme-label">Dark</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Notification Banner (Replaces alert) -->
+    <div id="toast-banner" class="hidden fixed top-14 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-sm bg-obsidian dark:bg-offwhite text-offwhite dark:text-obsidian border-l-4 border-signal px-3.5 py-2.5 text-xs font-medium flex items-center justify-between">
+      <span id="toast-message">Statusmeldung</span>
+      <button type="button" onclick="hideToast()" class="ml-3 font-mono text-[10px] uppercase opacity-70 hover:opacity-100">OK</button>
+    </div>
+
+    <!-- Main View Area -->
+    <main class="flex-1 overflow-y-auto pb-24">
+
+      <!-- ========================================================= -->
+      <!-- TAB 1: AUSWAHL (SPIN)                                     -->
+      <!-- ========================================================= -->
+      <section id="view-spin" class="p-4 space-y-5">
+
+        <!-- Filter Bar (Compact) -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-mono uppercase tracking-wider opacity-60">Pool-Filter</span>
+            <button type="button" id="toggle-filters-btn" class="text-[10px] font-mono uppercase underline decoration-signal underline-offset-2">
+              Mehr Filter
+            </button>
+          </div>
+
+          <!-- Format Pills -->
+          <div class="grid grid-cols-4 gap-1.5" id="format-filter-group">
+            <button type="button" data-format="ALL" class="format-btn active-format py-2 text-xs font-semibold border border-obsidian dark:border-offwhite bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian rounded-sm">Alle</button>
+            <button type="button" data-format="Vinyl" class="format-btn py-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm">Vinyl</button>
+            <button type="button" data-format="Cassette" class="format-btn py-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm">Tape</button>
+            <button type="button" data-format="CD" class="format-btn py-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm">CD</button>
+          </div>
+
+          <!-- Collapsible Extended Filters -->
+          <div id="extended-filters" class="hidden pt-2 grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[10px] font-mono uppercase opacity-60 mb-1">Jahrzehnt</label>
+              <select id="decade-filter" class="w-full bg-transparent border border-obsidian/25 dark:border-offwhite/25 px-2.5 py-2 text-xs rounded-sm focus:outline-none focus:border-signal">
+                <option value="ALL" class="bg-offwhite dark:bg-obsidian">Alle Jahre</option>
+                <option value="1990" class="bg-offwhite dark:bg-obsidian">1990er</option>
+                <option value="2000" class="bg-offwhite dark:bg-obsidian">2000er</option>
+                <option value="2010" class="bg-offwhite dark:bg-obsidian">2010er</option>
+                <option value="2020" class="bg-offwhite dark:bg-obsidian">2020er</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-mono uppercase opacity-60 mb-1">Künstler / Titel</label>
+              <input type="text" id="search-filter" placeholder="Suche..." class="w-full bg-transparent border border-obsidian/25 dark:border-offwhite/25 px-2.5 py-2 text-xs rounded-sm focus:outline-none focus:border-signal" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Result / Cover Stage -->
+        <div id="stage-container" class="border border-obsidian/20 dark:border-offwhite/20 bg-white dark:bg-charcoal p-4 rounded-sm transition-colors">
+          <!-- Empty / Initial Prompt -->
+          <div id="stage-empty" class="py-10 text-center space-y-3">
+            <div class="w-16 h-16 mx-auto border border-obsidian/25 dark:border-offwhite/25 flex items-center justify-center">
+              <div class="w-6 h-6 rounded-full border-2 border-signal"></div>
+            </div>
+            <div class="space-y-1">
+              <p class="text-sm font-bold tracking-tight">Bereit für die Auswahl</p>
+              <p class="text-xs opacity-65 max-w-[240px] mx-auto">
+                <span id="pool-summary-text">18 Tonträger von 11 Künstler:innen im aktuellen Pool.</span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Active Selected Album Card -->
+          <div id="stage-result" class="hidden space-y-4">
+            <!-- Cover + Meta Grid (Clickable to jump to release in Collection) -->
+            <div class="flex flex-col items-center">
+              <button type="button" id="cover-jump-btn" title="In Sammlung öffnen & bewerten" class="group w-full aspect-square max-w-[290px] border border-obsidian/15 dark:border-offwhite/15 hover:border-signal overflow-hidden relative bg-neutral-900 text-left focus:outline-none">
+                <div id="cover-wrapper" class="w-full h-full">
+                  <!-- Generative Swiss Graphic SVG or Cover injected here -->
+                </div>
+                <span class="absolute bottom-2 right-2 px-2 py-1 bg-obsidian/85 text-offwhite text-[10px] font-mono uppercase tracking-wider opacity-90 group-hover:bg-signal transition-colors">
+                  Bewerten & Notiz →
+                </span>
+              </button>
+            </div>
+
+            <!-- Release Info -->
+            <div class="space-y-1 pt-1 border-t border-obsidian/10 dark:border-offwhite/10">
+              <div class="flex items-center justify-between gap-2">
+                <span id="res-format-badge" class="text-[10px] font-mono uppercase px-1.5 py-0.5 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian font-bold">LP</span>
+                <span id="res-year-label" class="text-[11px] font-mono opacity-65 truncate">2004 • Ipecac Recordings</span>
+              </div>
+              <h2 id="res-artist" class="text-lg font-extrabold tracking-tight leading-tight pt-1">ISIS</h2>
+              <p id="res-title" class="text-sm font-medium opacity-90 leading-snug">Panopticon</p>
+            </div>
+
+            <!-- Inline Quick Rating & Note Preview on Result Card -->
+            <div class="border border-obsidian/15 dark:border-offwhite/15 bg-offwhite/70 dark:bg-obsidian/70 p-2.5 rounded-sm space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-[10px] font-mono uppercase opacity-65">Album-Sterne</span>
+                <div id="res-album-stars"></div>
+              </div>
+              <div class="flex items-center justify-between text-xs border-t border-obsidian/10 dark:border-offwhite/10 pt-1.5">
+                <span class="text-[10px] font-mono uppercase opacity-65">Artist-Sterne</span>
+                <div id="res-artist-stars"></div>
+              </div>
+              <div id="res-note-box" class="hidden border-t border-obsidian/10 dark:border-offwhite/10 pt-1.5 text-[11px] opacity-80 italic"></div>
+            </div>
+
+            <!-- Transparent Algorithm Reasoning -->
+            <div class="bg-offwhite dark:bg-obsidian border-l-2 border-signal px-3 py-2">
+              <p class="text-[10px] font-mono uppercase tracking-wider opacity-60">Auswahl-Logik</p>
+              <p id="res-reason" class="text-xs font-medium mt-0.5 leading-relaxed">
+                Artist-Ausgleich aktiv • 5★ Album • Noch nicht gehört
+              </p>
+            </div>
+
+            <!-- Post-Spin Actions -->
+            <div id="res-actions" class="grid grid-cols-3 gap-2 pt-1">
+              <button type="button" id="btn-mark-played" class="py-3 px-2 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian hover:bg-signal dark:hover:bg-signal dark:hover:text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors">
+                ✓ Gehört
+              </button>
+              <button type="button" id="btn-skip" class="py-3 px-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-semibold uppercase tracking-wider rounded-sm transition-colors">
+                ↻ Skip
+              </button>
+              <button type="button" id="btn-exclude" class="py-3 px-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-semibold uppercase tracking-wider opacity-75 hover:opacity-100 rounded-sm transition-colors">
+                ✕ Sperren
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Primary Spin CTA Button -->
+        <button type="button" id="btn-spin" class="w-full py-4 px-5 bg-signal text-white font-extrabold text-sm tracking-widest uppercase rounded-sm hover:opacity-95 active:scale-[0.99] transition-all flex items-center justify-between">
+          <span>Nächster Tonträger</span>
+          <span class="font-mono text-xs bg-black/20 px-2 py-0.5 rounded-sm" id="btn-spin-count">18</span>
+        </button>
+
+        <!-- Algorithm Parameters Panel -->
+        <div class="border border-obsidian/15 dark:border-offwhite/15 p-4 space-y-4 rounded-sm">
+          <div class="flex items-center justify-between border-b border-obsidian/10 dark:border-offwhite/10 pb-2.5">
+            <span class="text-xs font-extrabold uppercase tracking-wider">Algorithmus-Parameter</span>
+            <span id="stack-status-badge" class="text-[10px] font-mono uppercase px-2 py-0.5 border border-obsidian/25 dark:border-offwhite/25">
+              Stapel: 0 / 18
+            </span>
+          </div>
+
+          <!-- Mode Switch -->
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-mono uppercase opacity-65 block">Auswahl-Modus</label>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button type="button" id="mode-stack-btn" class="py-2.5 px-2 text-xs font-bold border border-obsidian dark:border-offwhite bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian rounded-sm text-left">
+                <div class="leading-tight">Stapel (Stack)</div>
+                <div class="text-[10px] font-normal opacity-75 mt-0.5">Erst alle durchspielen</div>
+              </button>
+              <button type="button" id="mode-shuffle-btn" class="py-2.5 px-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm text-left">
+                <div class="leading-tight">Zufall (Shuffle)</div>
+                <div class="text-[10px] font-normal opacity-65 mt-0.5">Wiederholung erlaubt</div>
+              </button>
+            </div>
+            <div id="stack-reset-row" class="flex items-center justify-between pt-1">
+              <span class="text-[11px] opacity-70" id="stack-progress-text">Noch 18 ungehörte Alben im Stapel</span>
+              <button type="button" id="btn-reset-stack" class="text-[10px] font-mono uppercase text-signal underline underline-offset-2">
+                Stapel zurücksetzen
+              </button>
+            </div>
+          </div>
+
+          <!-- Slider 1: Artist Balance -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex justify-between items-baseline">
+              <label for="slider-artist-balance" class="text-xs font-bold">Artist-Ausgleich</label>
+              <span id="val-artist-balance" class="text-xs font-mono font-bold text-signal">80%</span>
+            </div>
+            <input type="range" id="slider-artist-balance" min="0" max="100" step="5" value="80" />
+            <div class="flex justify-between text-[10px] font-mono opacity-55">
+              <span>0% (Pro Release)</span>
+              <span>100% (Jeder Artist gleich)</span>
+            </div>
+          </div>
+
+          <!-- Slider 2: Rating Weight -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex justify-between items-baseline">
+              <label for="slider-rating-weight" class="text-xs font-bold">Bewertungs-Einfluss</label>
+              <span id="val-rating-weight" class="text-xs font-mono font-bold text-signal">50%</span>
+            </div>
+            <input type="range" id="slider-rating-weight" min="0" max="100" step="5" value="50" />
+            <div class="flex justify-between text-[10px] font-mono opacity-55">
+              <span>0% (Neutral)</span>
+              <span>100% (Favoriten stark)</span>
+            </div>
+          </div>
+
+          <!-- Toggle: Long Time No Hear Bonus -->
+          <div class="flex items-center justify-between pt-2 border-t border-obsidian/10 dark:border-offwhite/10">
+            <div>
+              <div class="text-xs font-bold">„Lange nicht gehört“-Bonus</div>
+              <div class="text-[11px] opacity-65">Bevorzugt ungespielte / ältere Plays</div>
+            </div>
+            <button type="button" id="toggle-recency" role="switch" aria-checked="true" class="w-11 h-6 bg-signal rounded-sm p-0.5 transition-colors flex items-center justify-end">
+              <span class="w-5 h-5 bg-white block rounded-sm"></span>
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- TAB 2: SAMMLUNG & BEWERTUNG                               -->
+      <!-- ========================================================= -->
+      <section id="view-collection" class="hidden p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-extrabold uppercase tracking-wider">Sammlung & Gewichtung</h2>
+            <p class="text-xs opacity-65">Artist-Sterne gelten für alle Alben des Künstlers.</p>
+          </div>
+          <div class="flex border border-obsidian/25 dark:border-offwhite/25 rounded-sm overflow-hidden text-[11px] font-mono">
+            <button type="button" id="view-group-artist" class="px-2.5 py-1.5 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian font-bold">Künstler</button>
+            <button type="button" id="view-group-flat" class="px-2.5 py-1.5">Liste</button>
+          </div>
+        </div>
+
+        <!-- Quick Collection Search -->
+        <input type="text" id="collection-search" placeholder="Künstler, Album, Label oder Notiz filtern..." class="w-full bg-transparent border border-obsidian/25 dark:border-offwhite/25 px-3 py-2.5 text-xs rounded-sm focus:outline-none focus:border-signal" />
+
+        <!-- Stats Summary -->
+        <div class="grid grid-cols-3 gap-2 text-center border border-obsidian/15 dark:border-offwhite/15 p-2.5 rounded-sm">
+          <div>
+            <div id="stat-total-releases" class="text-base font-extrabold font-mono">18</div>
+            <div class="text-[10px] uppercase opacity-60">Tonträger</div>
+          </div>
+          <div class="border-x border-obsidian/15 dark:border-offwhite/15">
+            <div id="stat-total-artists" class="text-base font-extrabold font-mono">11</div>
+            <div class="text-[10px] uppercase opacity-60">Künstler:innen</div>
+          </div>
+          <div>
+            <div id="stat-total-played" class="text-base font-extrabold font-mono text-signal">0</div>
+            <div class="text-[10px] uppercase opacity-60">Gehört</div>
+          </div>
+        </div>
+
+        <!-- Collection List Container -->
+        <div id="collection-list" class="space-y-3">
+          <!-- Rendered dynamically -->
+        </div>
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- TAB 3: IMPORT / CSV & DISCOGS                             -->
+      <!-- ========================================================= -->
+      <section id="view-import" class="hidden p-4 space-y-5">
+        <div>
+          <h2 class="text-sm font-extrabold uppercase tracking-wider">Datenquelle & Sync</h2>
+          <p class="text-xs opacity-65 mt-0.5">Alle Daten & Token bleiben lokal im Browser (localStorage). Kein Server-Upload.</p>
+        </div>
+
+        <!-- Shared Optional Discogs Personal Access Token -->
+        <div class="border border-obsidian/20 dark:border-offwhite/20 p-4 space-y-2.5 rounded-sm bg-white dark:bg-charcoal">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold uppercase tracking-wider">Discogs Personal Access Token</span>
+            <span id="token-status-pill" class="text-[10px] font-mono px-1.5 py-0.5 border border-obsidian/25 dark:border-offwhite/25 opacity-70">Optional</span>
+          </div>
+          <p class="text-xs opacity-75 leading-relaxed">
+            Schaltet hochauflösende Cover-URLs und höheres API-Limit frei (60 statt 25 Anfragen/Min.). Zu finden auf Discogs unter <span class="font-mono text-[10px]">Settings → Developers → Generate new token</span>.
+          </p>
+          <div class="flex gap-2">
+            <input type="password" id="discogs-token" placeholder="Discogs Token einfügen..." class="flex-1 bg-transparent border border-obsidian/25 dark:border-offwhite/25 px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:border-signal" />
+            <button type="button" id="btn-save-token" class="px-3 py-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-bold uppercase tracking-wider rounded-sm">
+              Speichern
+            </button>
+          </div>
+        </div>
+
+        <!-- 1. Discogs CSV Upload + Background Cover Lazy-Loading -->
+        <div class="border border-obsidian/20 dark:border-offwhite/20 p-4 space-y-3 rounded-sm bg-white dark:bg-charcoal">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold uppercase tracking-wider">1. Discogs CSV-Export + Cover-Loader</span>
+            <span class="text-[10px] font-mono px-1.5 py-0.5 bg-signal text-white font-bold">SCHNELL</span>
+          </div>
+          <p class="text-xs opacity-75 leading-relaxed">
+            Sofort-Import aller Zeilen (<span class="font-mono text-[10px]">Artist, Title, Label, Format, Rating, Released, release_id</span>). Echte Cover werden anschließend automatisch im Hintergrund über die <span class="font-mono text-[10px]">release_id</span> nachgeladen.
+          </p>
+
+          <div class="flex items-center gap-3 text-xs pt-1">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="csv-mode" value="replace" checked class="accent-signal" />
+              <span>Sammlung ersetzen</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="csv-mode" value="append" class="accent-signal" />
+              <span>Ergänzen</span>
+            </label>
+          </div>
+
+          <label class="block w-full border border-dashed border-obsidian/40 dark:border-offwhite/40 hover:border-signal p-4 text-center cursor-pointer transition-colors rounded-sm">
+            <span class="block text-xs font-bold uppercase tracking-wider">CSV-Datei auswählen (.csv)</span>
+            <span class="block text-[11px] opacity-60 mt-1" id="csv-filename-label">Keine Datei ausgewählt</span>
+            <input type="file" id="csv-file-input" accept=".csv,text/csv" class="hidden" />
+          </label>
+
+          <!-- Background Cover Queue Status Box -->
+          <div id="cover-queue-box" class="hidden border-t border-obsidian/15 dark:border-offwhite/15 pt-3 space-y-2">
+            <div class="flex items-center justify-between text-[11px] font-mono">
+              <span id="cover-queue-label">Cover-Status: 0 / 0 geladen</span>
+              <span id="cover-queue-percent" class="text-signal font-bold">0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-obsidian/10 dark:bg-offwhite/10 overflow-hidden">
+              <div id="cover-queue-bar" class="h-full bg-signal transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex items-center justify-between gap-2 pt-1">
+              <button type="button" id="btn-cover-queue-toggle" class="px-2.5 py-1.5 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-[11px] font-mono uppercase rounded-sm">
+                Cover-Abruf starten
+              </button>
+              <button type="button" id="btn-cover-cache-clear" class="px-2.5 py-1.5 border border-obsidian/20 dark:border-offwhite/20 hover:border-signal text-[11px] font-mono uppercase opacity-75 hover:opacity-100 rounded-sm">
+                Cover-Cache leeren
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Full Discogs Collection API Sync (All Pages) -->
+        <div class="border border-obsidian/20 dark:border-offwhite/20 p-4 space-y-3 rounded-sm bg-white dark:bg-charcoal">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold uppercase tracking-wider">2. Discogs API Komplett-Sync</span>
+            <span class="text-[10px] font-mono opacity-65">Alle Seiten</span>
+          </div>
+          <p class="text-xs opacity-75 leading-relaxed">
+            Lädt alle Seiten deiner Discogs-Sammlung nacheinander (inkl. Cover-URLs, ca. 1,1 Sek. Pause pro 100er-Seite wegen Discogs Rate-Limit).
+          </p>
+          <div class="space-y-2">
+            <input type="text" id="discogs-username" placeholder="Discogs Benutzername (z.B. vinyl_collector)" class="w-full bg-transparent border border-obsidian/25 dark:border-offwhite/25 px-3 py-2 text-xs rounded-sm focus:outline-none focus:border-signal" />
+            <label class="flex items-center gap-2 text-xs cursor-pointer py-0.5">
+              <input type="checkbox" id="discogs-preserve-meta" checked class="accent-signal" />
+              <span>Bestehende Bewertungen & Hör-Historie behalten</span>
+            </label>
+            <div class="flex gap-2">
+              <button type="button" id="btn-discogs-fetch" class="flex-1 py-2.5 px-4 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian hover:bg-signal dark:hover:bg-signal dark:hover:text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors">
+                Komplette Sammlung laden
+              </button>
+              <button type="button" id="btn-discogs-abort" class="hidden px-3 py-2.5 border border-signal text-signal text-xs font-bold uppercase tracking-wider rounded-sm">
+                Stopp
+              </button>
+            </div>
+          </div>
+
+          <!-- Pagination Progress Bar -->
+          <div id="discogs-progress-wrap" class="hidden space-y-1.5 pt-1">
+            <div class="w-full h-1.5 bg-obsidian/10 dark:bg-offwhite/10 overflow-hidden">
+              <div id="discogs-progress-bar" class="h-full bg-signal transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="discogs-status" class="text-[11px] font-mono opacity-80"></p>
+          </div>
+        </div>
+
+        <!-- 3. Reset & Backup -->
+        <div class="border border-obsidian/20 dark:border-offwhite/20 p-4 space-y-3 rounded-sm">
+          <span class="text-xs font-extrabold uppercase tracking-wider block">3. Speicher, Backup & Demo-Daten</span>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" id="btn-export-json" class="py-2.5 px-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-semibold rounded-sm">
+              JSON-Backup
+            </button>
+            <button type="button" id="btn-reset-demo" class="py-2.5 px-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-semibold rounded-sm">
+              Demo-Daten
+            </button>
+            <button type="button" id="btn-clear-history" class="py-2.5 px-2 border border-obsidian/30 dark:border-offwhite/30 hover:border-signal text-xs font-semibold rounded-sm">
+              Historie 0
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Tab Navigation -->
+    <nav class="fixed bottom-0 w-full max-w-md bg-offwhite/95 dark:bg-obsidian/95 backdrop-blur-sm border-t border-obsidian/20 dark:border-offwhite/20 grid grid-cols-3 z-30">
+      <button type="button" data-tab="spin" class="nav-tab py-3 px-2 flex flex-col items-center justify-center gap-0.5 border-t-2 border-signal text-obsidian dark:text-offwhite">
+        <span class="text-[10px] font-mono opacity-60">01</span>
+        <span class="text-xs font-extrabold uppercase tracking-wider">Auswahl</span>
+      </button>
+      <button type="button" data-tab="collection" class="nav-tab py-3 px-2 flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent opacity-60 hover:opacity-100">
+        <span class="text-[10px] font-mono">02</span>
+        <span class="text-xs font-bold uppercase tracking-wider">Sammlung</span>
+      </button>
+      <button type="button" data-tab="import" class="nav-tab py-3 px-2 flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent opacity-60 hover:opacity-100">
+        <span class="text-[10px] font-mono">03</span>
+        <span class="text-xs font-bold uppercase tracking-wider">Import</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * VINYL SELECTION ALGORITHM — PROTOTYPE CORE ENGINE (v1.1)
+     * ============================================================================
+     */
+
+    const STORAGE_KEY = 'vsa_prototype_state_v1';
+    const TOKEN_STORAGE_KEY = 'vsa_discogs_token';
+    const USERNAME_STORAGE_KEY = 'vsa_discogs_username';
+
+    // Curated realistic sample collection (including multiple releases per artist to demonstrate Artist Balance)
+    const SAMPLE_RELEASES = [
+      { id: 'r1', releaseId: '418574', artist: 'ISIS', title: 'Oceanic', label: 'Ipecac Recordings', format: 'LP, Album, Reissue', released: 2002, rating: 5, coverUrl: '', notes: 'Seite B („The Beginning and the End“) perfekt für späte Abende.' },
+      { id: 'r2', releaseId: '372999', artist: 'ISIS', title: 'Panopticon', label: 'Ipecac Recordings', format: 'LP, Album, Remastered', released: 2004, rating: 5, coverUrl: '', notes: '' },
+      { id: 'r3', releaseId: '816879', artist: 'ISIS', title: 'In The Absence Of Truth', label: 'Ipecac Recordings', format: '2xLP, Album', released: 2006, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r4', releaseId: '1768466', artist: 'ISIS', title: 'Wavering Radiant', label: 'Ipecac Recordings', format: '2xLP, Album', released: 2009, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r5', releaseId: '1703165', artist: 'Mono', title: 'Hymn To The Immortal Wind', label: 'Temporary Residence Ltd.', format: '2xLP, Album', released: 2009, rating: 5, coverUrl: '', notes: 'Orchester-Arrangement, etwas lauter aufdrehen.' },
+      { id: 'r6', releaseId: '653595', artist: 'Mono', title: 'You Are There', label: 'Temporary Residence Ltd.', format: '2xLP, Album', released: 2006, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r7', releaseId: '3848715', artist: 'Mono', title: 'For My Parents', label: 'Temporary Residence Ltd.', format: '2xLP, Album', released: 2012, rating: 3, coverUrl: '', notes: '' },
+      { id: 'r8', releaseId: '12419754', artist: 'Birds In Row', title: 'We Already Lost The World', label: 'Deathwish Inc.', format: 'LP, Album', released: 2018, rating: 5, coverUrl: '', notes: '' },
+      { id: 'r9', releaseId: '24815597', artist: 'Birds In Row', title: 'Gris Klein', label: 'Red Creek', format: 'LP, Album', released: 2022, rating: 5, coverUrl: '', notes: '' },
+      { id: 'r10', releaseId: '3550', artist: 'Aphex Twin', title: 'Selected Ambient Works 85-92', label: 'Apollo', format: '2xLP, Album', released: 1992, rating: 5, coverUrl: '', notes: 'Sonntagmorgen-Klassiker.' },
+      { id: 'r11', releaseId: '28761', artist: 'Aphex Twin', title: 'Richard D. James Album', label: 'Warp Records', format: 'LP, Album', released: 1996, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r12', releaseId: '798718', artist: 'Dendemann', title: 'Die Pfütze Des Eisbergs', label: 'Yo Mama\'s Recording', format: '2xLP, Album', released: 2006, rating: 5, coverUrl: '', notes: '' },
+      { id: 'r13', releaseId: '13117389', artist: 'Dendemann', title: 'Da Nich Für!', label: 'Vertigo Berlin', format: '2xLP, Album', released: 2019, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r14', releaseId: '3539871', artist: 'Loma Prieta', title: 'I.V.', label: 'Deathwish Inc.', format: 'LP, Album', released: 2012, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r15', releaseId: '15283114', artist: 'Infant Island', title: 'Beneath', label: 'Dog Knights Productions', format: 'Cassette, Album', released: 2020, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r16', releaseId: '12543162', artist: 'Sumac', title: 'Love In Shadow', label: 'Thrill Jockey', format: '2xLP, Album', released: 2018, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r17', releaseId: '24753', artist: 'Fatboy Slim', title: 'You\'ve Come A Long Way, Baby', label: 'Skint', format: '2xLP, Album', released: 1998, rating: 4, coverUrl: '', notes: '' },
+      { id: 'r18', releaseId: '23428484', artist: 'Gillian Carter', title: 'Salvation Through Misery', label: 'Skeletal Lightning', format: 'CD, Album', released: 2022, rating: 4, coverUrl: '', notes: '' }
+    ];
+
+    // Application State
+    let state = {
+      releases: [],
+      artistRatings: {}, // { "ISIS": 5, "Mono": 4, ... }
+      settings: {
+        mode: 'stack',          // 'stack' | 'shuffle'
+        artistBalance: 80,      // 0..100
+        ratingWeight: 50,       // 0..100
+        recencyBonus: true,     // boolean
+        formatFilter: 'ALL',    // 'ALL' | 'Vinyl' | 'Cassette' | 'CD'
+        decadeFilter: 'ALL',    // 'ALL' | '1990' | '2000' | '2010' | '2020'
+        searchFilter: '',
+        darkMode: false,
+        collectionGrouping: 'artist' // 'artist' | 'flat'
+      },
+      currentSelection: null,   // { release, reason }
+      sessionSkippedIds: []     // Temporary skip list during current session
+    };
+
+    // Runtime Sync Controllers (Not persisted)
+    let coverQueueRunning = false;
+    let coverQueueTimer = null;
+    let fullSyncAbortFlag = false;
+    let fullSyncRunning = false;
+    const failedCoverReleaseIds = new Set();
+    const expandedReleaseIds = new Set();
+    let highlightedReleaseId = null;
+
+    function getDiscogsToken() {
+      return (localStorage.getItem(TOKEN_STORAGE_KEY) || '').trim();
+    }
+
+    function saveDiscogsToken(tokenVal) {
+      const clean = (tokenVal || '').trim();
+      if (clean) {
+        localStorage.setItem(TOKEN_STORAGE_KEY, clean);
+      } else {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+      }
+      updateTokenStatusUI();
+    }
+
+    function updateTokenStatusUI() {
+      const token = getDiscogsToken();
+      const input = document.getElementById('discogs-token');
+      const pill = document.getElementById('token-status-pill');
+      if (input && document.activeElement !== input) {
+        input.value = token;
+      }
+      if (pill) {
+        if (token) {
+          pill.textContent = 'Aktiv';
+          pill.className = 'text-[10px] font-mono px-1.5 py-0.5 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian font-bold';
+        } else {
+          pill.textContent = 'Optional';
+          pill.className = 'text-[10px] font-mono px-1.5 py-0.5 border border-obsidian/25 dark:border-offwhite/25 opacity-70';
+        }
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const banner = document.getElementById('toast-banner');
+      const msgEl = document.getElementById('toast-message');
+      if (!banner || !msgEl) return;
+      msgEl.textContent = msg;
+      banner.classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        banner.classList.add('hidden');
+      }, 3600);
+    }
+
+    function hideToast() {
+      document.getElementById('toast-banner').classList.add('hidden');
+    }
+
+    // Initialize or Load State from localStorage
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.releases) && parsed.releases.length > 0) {
+            state = {
+              ...state,
+              ...parsed,
+              settings: { ...state.settings, ...(parsed.settings || {}) },
+              sessionSkippedIds: []
+            };
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Fehler beim Laden aus localStorage:', e);
+      }
+      initDemoData(false);
+    }
+
+    function saveState() {
+      try {
+        const toSave = {
+          releases: state.releases,
+          artistRatings: state.artistRatings,
+          settings: state.settings
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+      } catch (e) {
+        console.warn('Speichern fehlgeschlagen:', e);
+      }
+    }
+
+    function initDemoData(notify = true) {
+      state.releases = SAMPLE_RELEASES.map(item => ({
+        ...item,
+        notes: item.notes || '',
+        playCount: 0,
+        lastPlayedAt: null,
+        stackPlayed: false,
+        excluded: false
+      }));
+      state.artistRatings = {
+        'ISIS': 5,
+        'Mono': 4,
+        'Birds In Row': 5,
+        'Aphex Twin': 5,
+        'Dendemann': 4,
+        'Loma Prieta': 4,
+        'Infant Island': 4,
+        'Sumac': 4,
+        'Fatboy Slim': 3,
+        'Gillian Carter': 4
+      };
+      state.currentSelection = null;
+      state.sessionSkippedIds = [];
+      saveState();
+      renderAll();
+      if (notify) showToast('Demo-Sammlung (18 Tonträger) wiederhergestellt.');
+    }
+
+    /**
+     * ============================================================================
+     * GENERATIVE SWISS GRAPHIC COVER ARTWORK GENERATOR
+     * ============================================================================
+     */
+    function hashString(str) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function generateSwissCoverSVG(release) {
+      const seed = hashString(`${release.artist}-${release.title}-${release.released}`);
+      const palettes = [
+        { bg: '#111111', fg: '#F5F4F0', accent: '#FF3B00' },
+        { bg: '#F5F4F0', fg: '#111111', accent: '#FF3B00' },
+        { bg: '#FF3B00', fg: '#111111', accent: '#F5F4F0' },
+        { bg: '#1C1917', fg: '#E7E5E4', accent: '#D97706' },
+        { bg: '#0F172A', fg: '#F8FAFC', accent: '#38BDF8' },
+        { bg: '#E5E5E0', fg: '#171717', accent: '#DC2626' }
+      ];
+      const pal = palettes[seed % palettes.length];
+      const patternType = (seed >> 3) % 4;
+      const rotation = ((seed >> 6) % 4) * 90;
+
+      const escapeXml = (s) => String(s || '').replace(/[<>&'"]/g, c => ({
+        '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;'
+      }[c]));
+
+      const artistShort = escapeXml(release.artist.toUpperCase().slice(0, 22));
+      const titleShort = escapeXml(release.title.slice(0, 28));
+      const yearStr = release.released ? String(release.released) : 'N/A';
+
+      let graphicShapes = '';
+      if (patternType === 0) {
+        // Concentric Vinyl Grooves + Swiss Crossbar
+        graphicShapes = `
+          <circle cx="150" cy="175" r="88" fill="none" stroke="${pal.fg}" stroke-width="1.5" opacity="0.25"/>
+          <circle cx="150" cy="175" r="64" fill="none" stroke="${pal.fg}" stroke-width="12" opacity="0.9"/>
+          <circle cx="150" cy="175" r="24" fill="${pal.accent}"/>
+          <circle cx="150" cy="175" r="5" fill="${pal.bg}"/>
+        `;
+      } else if (patternType === 1) {
+        // Bauhaus / Swiss Modular Grid Blocks
+        graphicShapes = `
+          <rect x="24" y="105" width="120" height="120" fill="${pal.accent}"/>
+          <rect x="156" y="105" width="120" height="54" fill="${pal.fg}"/>
+          <circle cx="216" cy="198" r="27" fill="${pal.fg}"/>
+          <line x1="24" y1="245" x2="276" y2="245" stroke="${pal.fg}" stroke-width="2"/>
+        `;
+      } else if (patternType === 2) {
+        // Diagonal Kinetic Bars
+        graphicShapes = `
+          <g transform="rotate(${rotation} 150 175)">
+            <rect x="55" y="105" width="190" height="18" fill="${pal.fg}"/>
+            <rect x="55" y="135" width="140" height="18" fill="${pal.accent}"/>
+            <rect x="55" y="165" width="190" height="18" fill="${pal.fg}"/>
+            <rect x="55" y="195" width="95" height="18" fill="${pal.fg}" opacity="0.5"/>
+          </g>
+        `;
+      } else {
+        // Minimalist Split Arc
+        graphicShapes = `
+          <path d="M 40 230 A 110 110 0 0 1 260 230 Z" fill="${pal.fg}"/>
+          <circle cx="150" cy="155" r="28" fill="${pal.accent}"/>
+        `;
+      }
+
+      return `
+        <svg viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg" class="w-full h-full block">
+          <rect width="300" height="300" fill="${pal.bg}"/>
+          <line x1="24" y1="24" x2="276" y2="24" stroke="${pal.fg}" stroke-width="2"/>
+          <text x="24" y="48" fill="${pal.fg}" font-family="Inter, Helvetica, sans-serif" font-weight="800" font-size="16" letter-spacing="0.5">${artistShort}</text>
+          <text x="24" y="68" fill="${pal.fg}" font-family="Inter, Helvetica, sans-serif" font-weight="500" font-size="12" opacity="0.8">${titleShort}</text>
+          <text x="276" y="48" text-anchor="end" fill="${pal.accent}" font-family="JetBrains Mono, monospace" font-weight="700" font-size="12">${yearStr}</text>
+          ${graphicShapes}
+          <text x="24" y="278" fill="${pal.fg}" font-family="JetBrains Mono, monospace" font-size="9" opacity="0.6">${escapeXml((release.label || '').toUpperCase().slice(0, 32))}</text>
+          <text x="276" y="278" text-anchor="end" fill="${pal.fg}" font-family="JetBrains Mono, monospace" font-size="9" opacity="0.6">${escapeXml(normalizeFormatCategory(release.format).toUpperCase())}</text>
+        </svg>
+      `;
+    }
+
+    /**
+     * ============================================================================
+     * FILTERING & INTELLIGENT SELECTION ALGORITHM
+     * ============================================================================
+     */
+    function normalizeFormatCategory(rawFormat) {
+      const f = (rawFormat || '').toLowerCase();
+      if (f.includes('cassette') || f.includes('tape')) return 'Cassette';
+      if (f.includes('cd')) return 'CD';
+      if (f.includes('lp') || f.includes('vinyl') || f.includes('12"') || f.includes('7"') || f.includes('10"')) return 'Vinyl';
+      return 'Vinyl';
+    }
+
+    function getFilteredPool() {
+      const { formatFilter, decadeFilter, searchFilter } = state.settings;
+      const q = searchFilter.trim().toLowerCase();
+
+      return state.releases.filter(r => {
+        if (r.excluded) return false;
+
+        if (formatFilter !== 'ALL') {
+          if (normalizeFormatCategory(r.format) !== formatFilter) return false;
+        }
+
+        if (decadeFilter !== 'ALL') {
+          const dec = parseInt(decadeFilter, 10);
+          const yr = parseInt(r.released, 10);
+          if (!yr || yr < dec || yr >= dec + 10) return false;
+        }
+
+        if (q) {
+          const hay = `${r.artist} ${r.title} ${r.label} ${r.notes || ''}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+    }
+
+    function selectNextRelease() {
+      const pool = getFilteredPool();
+      if (pool.length === 0) {
+        showToast('Keine Tonträger im aktuellen Filter-Pool.');
+        return null;
+      }
+
+      const { mode, artistBalance, ratingWeight, recencyBonus } = state.settings;
+
+      // Determine candidate list based on Mode
+      let candidates = [...pool];
+      if (mode === 'stack') {
+        const unplayedInStack = candidates.filter(r => !r.stackPlayed);
+        if (unplayedInStack.length === 0) {
+          showToast('Stapel komplett durchgespielt! Setze den Stapel zurück.');
+          return null;
+        }
+        candidates = unplayedInStack;
+      }
+
+      // Avoid immediate repeat or session-skipped items if alternatives exist
+      const nonSkipped = candidates.filter(r =>
+        !state.sessionSkippedIds.includes(r.id) &&
+        (!state.currentSelection || r.id !== state.currentSelection.release.id)
+      );
+      if (nonSkipped.length > 0) {
+        candidates = nonSkipped;
+      }
+
+      // Count releases per artist in the candidate pool (for Artist Balance calculation)
+      const artistCounts = {};
+      candidates.forEach(r => {
+        const key = r.artist.trim().toLowerCase();
+        artistCounts[key] = (artistCounts[key] || 0) + 1;
+      });
+
+      const balanceFactor = artistBalance / 100; // 0.0 -> per album, 1.0 -> per artist equal
+      const ratingFactor = ratingWeight / 100;   // 0.0 -> neutral, 1.0 -> strong rating influence
+      const now = Date.now();
+
+      // Calculate final probability weight for each candidate
+      const weightedCandidates = candidates.map(r => {
+        const artistKey = r.artist.trim().toLowerCase();
+        const countForArtist = artistCounts[artistKey] || 1;
+
+        // 1. Artist Balance Weight:
+        // At balanceFactor = 0 => 1 / (count^0) = 1 (purely per-album)
+        // At balanceFactor = 1 => 1 / (count^1) = 1/count (every artist gets equal base sum!)
+        const artistBalanceWeight = 1 / Math.pow(countForArtist, balanceFactor);
+
+        // 2. Rating Multiplier (combines Album Rating 1-5 and Artist Rating 1-5)
+        const albumStars = r.rating || 3;
+        const artistStars = state.artistRatings[r.artist] || 3;
+        const combinedStars = (albumStars * 0.6) + (artistStars * 0.4); // 1.0 to 5.0
+        // Neutral is 3.0 -> multiplier 1.0; 5.0 -> up to 2.2x; 1.0 -> down to 0.35x
+        const rawRatingMult = Math.pow(combinedStars / 3.0, 1.6);
+        const ratingMultiplier = 1 + (rawRatingMult - 1) * ratingFactor;
+
+        // 3. Recency / "Lange nicht gehört" Bonus
+        let recencyMultiplier = 1.0;
+        if (recencyBonus) {
+          if (!r.lastPlayedAt) {
+            recencyMultiplier = 1.45; // Never played gets strong boost
+          } else {
+            const daysSince = (now - r.lastPlayedAt) / (1000 * 60 * 60 * 24);
+            // Recently played gets dampened, older plays recover up to 1.35x
+            recencyMultiplier = Math.min(1.35, 0.55 + (daysSince / 14) * 0.8);
+          }
+        }
+
+        const totalWeight = Math.max(0.01, artistBalanceWeight * ratingMultiplier * recencyMultiplier);
+
+        return {
+          release: r,
+          weight: totalWeight,
+          countForArtist,
+          albumStars,
+          artistStars
+        };
+      });
+
+      // Weighted Random Draw
+      const totalSum = weightedCandidates.reduce((acc, item) => acc + item.weight, 0);
+      let threshold = Math.random() * totalSum;
+      let chosen = weightedCandidates[weightedCandidates.length - 1];
+
+      for (const item of weightedCandidates) {
+        threshold -= item.weight;
+        if (threshold <= 0) {
+          chosen = item;
+          break;
+        }
+      }
+
+      // Build transparent human-readable explanation
+      const reasons = [];
+      if (mode === 'stack') {
+        const remaining = pool.filter(r => !r.stackPlayed).length;
+        reasons.push(`Stapel (${remaining} offen)`);
+      }
+      if (artistBalance >= 50 && chosen.countForArtist > 1) {
+        reasons.push(`Artist-Ausgleich (${chosen.countForArtist} Alben ausgeglichen)`);
+      } else if (artistBalance >= 50 && chosen.countForArtist === 1) {
+        reasons.push('Artist-Ausgleich (Einzel-Release gestärkt)');
+      }
+      if (ratingWeight >= 25) {
+        reasons.push(`${chosen.albumStars}★ Album / ${chosen.artistStars}★ Artist`);
+      }
+      if (recencyBonus) {
+        if (!chosen.release.lastPlayedAt) {
+          reasons.push('Noch nicht gehört');
+        } else {
+          reasons.push('Lange nicht gehört');
+        }
+      }
+      if (reasons.length === 0) {
+        reasons.push('Reiner Zufall');
+      }
+
+      return {
+        release: chosen.release,
+        reason: reasons.join(' • ')
+      };
+    }
+
+    /**
+     * ============================================================================
+     * SPIN ANIMATION & UI INTERACTIONS
+     * ============================================================================
+     */
+    let isSpinning = false;
+
+    function triggerSpin() {
+      if (isSpinning) return;
+      const result = selectNextRelease();
+      if (!result) return;
+
+      isSpinning = true;
+      const stageEmpty = document.getElementById('stage-empty');
+      const stageResult = document.getElementById('stage-result');
+      const coverWrapper = document.getElementById('cover-wrapper');
+      const resArtist = document.getElementById('res-artist');
+      const resTitle = document.getElementById('res-title');
+      const resReason = document.getElementById('res-reason');
+
+      stageEmpty.classList.add('hidden');
+      stageResult.classList.remove('hidden');
+      coverWrapper.classList.add('spinning-frame');
+
+      const pool = getFilteredPool();
+      let ticks = 0;
+      const maxTicks = 7;
+
+      const interval = setInterval(() => {
+        ticks++;
+        const preview = pool[Math.floor(Math.random() * pool.length)];
+        renderCoverInto(coverWrapper, preview);
+        resArtist.textContent = preview.artist;
+        resTitle.textContent = preview.title;
+        resReason.textContent = 'Berechne Gewichtung...';
+
+        if (ticks >= maxTicks) {
+          clearInterval(interval);
+          coverWrapper.classList.remove('spinning-frame');
+          state.currentSelection = result;
+          renderSelectedResult();
+          isSpinning = false;
+
+          // Lazy on-demand cover fetch if this release has a releaseId but no cover yet
+          if (!result.release.coverUrl && result.release.releaseId) {
+            fetchCoverForRelease(result.release.id, true);
+          }
+        }
+      }, 75);
+    }
+
+    function renderCoverInto(container, release) {
+      if (release.coverUrl) {
+        container.innerHTML = `
+          <img src="${release.coverUrl}" alt="${release.title}" class="w-full h-full object-cover"
+               onerror="this.parentElement.innerHTML = window.__fallbackCover('${release.id}')" />
+        `;
+      } else {
+        container.innerHTML = generateSwissCoverSVG(release);
+      }
+    }
+
+    window.__fallbackCover = function(id) {
+      const rel = state.releases.find(r => r.id === id);
+      return rel ? generateSwissCoverSVG(rel) : '';
+    };
+
+    function renderSelectedResult() {
+      const stageEmpty = document.getElementById('stage-empty');
+      const stageResult = document.getElementById('stage-result');
+
+      if (!state.currentSelection) {
+        stageEmpty.classList.remove('hidden');
+        stageResult.classList.add('hidden');
+        return;
+      }
+
+      const { release, reason } = state.currentSelection;
+      // Sync latest release object in case ratings changed
+      const fresh = state.releases.find(r => r.id === release.id) || release;
+
+      stageEmpty.classList.add('hidden');
+      stageResult.classList.remove('hidden');
+
+      renderCoverInto(document.getElementById('cover-wrapper'), fresh);
+      document.getElementById('res-format-badge').textContent = normalizeFormatCategory(fresh.format);
+      document.getElementById('res-year-label').textContent = `${fresh.released || '—'} • ${fresh.label || 'Unbekanntes Label'}`;
+      document.getElementById('res-artist').textContent = fresh.artist;
+      document.getElementById('res-title').textContent = fresh.title;
+      document.getElementById('res-reason').textContent = reason;
+
+      // Render inline rating controls and note preview on result stage
+      const artistEnc = encodeURIComponent(fresh.artist);
+      document.getElementById('res-album-stars').innerHTML =
+        renderStars(fresh.rating || 3, `onclick="setAlbumRating('${fresh.id}', {val})"`);
+      document.getElementById('res-artist-stars').innerHTML =
+        renderStars(state.artistRatings[fresh.artist] || 3, `onclick="setArtistRating('${artistEnc}', {val})"`);
+
+      const noteBox = document.getElementById('res-note-box');
+      if (fresh.notes && fresh.notes.trim()) {
+        noteBox.textContent = `„${fresh.notes.trim()}“`;
+        noteBox.classList.remove('hidden');
+      } else {
+        noteBox.classList.add('hidden');
+      }
+    }
+
+    /**
+     * Jumps directly from the selected cover in Tab 01 to the release card in Tab 02
+     */
+    function jumpToReleaseInCollection(releaseId) {
+      if (!releaseId) return;
+      expandedReleaseIds.add(releaseId);
+      highlightedReleaseId = releaseId;
+
+      // Clear search filter if the release would be hidden by an active search query
+      const searchInput = document.getElementById('collection-search');
+      if (searchInput && searchInput.value.trim() !== '') {
+        searchInput.value = '';
+      }
+
+      switchTab('collection');
+
+      requestAnimationFrame(() => {
+        const cardEl = document.getElementById(`release-card-${releaseId}`);
+        if (cardEl) {
+          cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const textarea = cardEl.querySelector('textarea');
+          if (textarea) {
+            textarea.focus({ preventScroll: true });
+          }
+        }
+        setTimeout(() => {
+          highlightedReleaseId = null;
+          const el = document.getElementById(`release-card-${releaseId}`);
+          if (el) el.classList.remove('ring-2', 'ring-signal', 'bg-signal/5');
+        }, 2200);
+      });
+    }
+
+    function handleMarkPlayed() {
+      if (!state.currentSelection) return;
+      const id = state.currentSelection.release.id;
+      const rel = state.releases.find(r => r.id === id);
+      if (rel) {
+        rel.playCount = (rel.playCount || 0) + 1;
+        rel.lastPlayedAt = Date.now();
+        rel.stackPlayed = true;
+        saveState();
+        showToast(`„${rel.title}“ als gehört markiert (${rel.playCount}×).`);
+        state.currentSelection = null;
+        renderAll();
+      }
+    }
+
+    function handleSkip() {
+      if (!state.currentSelection) return;
+      state.sessionSkippedIds.push(state.currentSelection.release.id);
+      triggerSpin();
+    }
+
+    function handleExclude() {
+      if (!state.currentSelection) return;
+      const id = state.currentSelection.release.id;
+      const rel = state.releases.find(r => r.id === id);
+      if (rel) {
+        rel.excluded = true;
+        saveState();
+        showToast(`„${rel.title}“ aus der Auswahl gesperrt.`);
+        state.currentSelection = null;
+        renderAll();
+      }
+    }
+
+    /**
+     * ============================================================================
+     * COLLECTION & RATING VIEW RENDERER
+     * ============================================================================
+     */
+    function renderStars(currentValue, onClickAttr) {
+      let html = '<div class="inline-flex items-center gap-0.5">';
+      for (let i = 1; i <= 5; i++) {
+        const filled = i <= currentValue;
+        html += `
+          <button type="button" ${onClickAttr.replace('{val}', i)} class="p-1 text-xs leading-none ${filled ? 'text-signal' : 'opacity-25 hover:opacity-70'} transition-opacity" aria-label="${i} Sterne">
+            ★
+          </button>
+        `;
+      }
+      html += '</div>';
+      return html;
+    }
+
+    window.setArtistRating = function(artistEncoded, stars) {
+      const artist = decodeURIComponent(artistEncoded);
+      state.artistRatings[artist] = stars;
+      saveState();
+      renderCollection();
+      renderSelectedResult();
+      showToast(`Künstler-Bewertung für ${artist}: ${stars}★`);
+    };
+
+    window.setAlbumRating = function(releaseId, stars) {
+      const rel = state.releases.find(r => r.id === releaseId);
+      if (rel) {
+        rel.rating = stars;
+        saveState();
+        renderCollection();
+        renderSelectedResult();
+      }
+    };
+
+    window.toggleReleaseExpand = function(releaseId) {
+      if (expandedReleaseIds.has(releaseId)) {
+        expandedReleaseIds.delete(releaseId);
+      } else {
+        expandedReleaseIds.add(releaseId);
+      }
+      renderCollection();
+    };
+
+    window.updateReleaseNote = function(releaseId, value) {
+      const rel = state.releases.find(r => r.id === releaseId);
+      if (rel) {
+        rel.notes = value;
+        saveState();
+        renderSelectedResult();
+      }
+    };
+
+    window.toggleReleaseExclude = function(releaseId) {
+      const rel = state.releases.find(r => r.id === releaseId);
+      if (rel) {
+        rel.excluded = !rel.excluded;
+        saveState();
+        renderAll();
+        showToast(rel.excluded ? `„${rel.title}“ gesperrt.` : `„${rel.title}“ wieder aktiv.`);
+      }
+    };
+
+    window.toggleReleaseStackPlayed = function(releaseId) {
+      const rel = state.releases.find(r => r.id === releaseId);
+      if (rel) {
+        rel.stackPlayed = !rel.stackPlayed;
+        saveState();
+        renderAll();
+      }
+    };
+
+    window.manualFetchSingleCover = async function(releaseId) {
+      showToast('Lade Cover von Discogs...');
+      const ok = await fetchCoverForRelease(releaseId, true);
+      if (ok === true) {
+        renderCollection();
+        showToast('Cover erfolgreich geladen.');
+      } else {
+        showToast('Kein Cover verfügbar oder Rate-Limit erreicht.');
+      }
+    };
+
+    function renderMiniThumbnail(release) {
+      if (release.coverUrl) {
+        return `<img src="${release.coverUrl}" alt="${release.title}" loading="lazy" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML = window.__fallbackCover('${release.id}')" />`;
+      }
+      return generateSwissCoverSVG(release);
+    }
+
+    function formatLastPlayedLabel(ts) {
+      if (!ts) return 'Noch nie gehört';
+      const d = new Date(ts);
+      return `Zuletzt: ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })}`;
+    }
+
+    function renderReleaseDetailDrawer(r) {
+      const escapedNote = (r.notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `
+        <div class="mt-2 pt-2.5 border-t border-obsidian/10 dark:border-offwhite/10 space-y-2.5 bg-offwhite/60 dark:bg-obsidian/60 p-2.5 rounded-sm">
+          <div class="flex items-center justify-between text-[10px] font-mono opacity-70">
+            <span>${r.label || 'Unbekanntes Label'}</span>
+            <span>${formatLastPlayedLabel(r.lastPlayedAt)}</span>
+          </div>
+          <div>
+            <label class="block text-[10px] font-mono uppercase opacity-65 mb-1">Kommentar / Notiz zur Platte</label>
+            <textarea rows="2" placeholder="z. B. Pressung, Stimmung, Anspieltipps, Knistern..." oninput="updateReleaseNote('${r.id}', this.value)" class="w-full bg-white dark:bg-charcoal border border-obsidian/25 dark:border-offwhite/25 px-2.5 py-1.5 text-xs rounded-sm focus:outline-none focus:border-signal">${escapedNote}</textarea>
+          </div>
+          <div class="flex items-center justify-between gap-2 text-[10px] font-mono">
+            <button type="button" onclick="toggleReleaseStackPlayed('${r.id}')" class="px-2 py-1 border border-obsidian/25 dark:border-offwhite/25 hover:border-signal rounded-sm uppercase">
+              ${r.stackPlayed ? '✓ Im Stapel gehört (zurücksetzen)' : 'Als im Stapel gehört markieren'}
+            </button>
+            ${!r.coverUrl && r.releaseId ? `<button type="button" onclick="manualFetchSingleCover('${r.id}')" class="px-2 py-1 border border-obsidian/25 dark:border-offwhite/25 hover:border-signal rounded-sm uppercase">Cover laden</button>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCollection() {
+      const container = document.getElementById('collection-list');
+      const query = document.getElementById('collection-search').value.trim().toLowerCase();
+
+      const filtered = state.releases.filter(r => {
+        if (!query) return true;
+        return `${r.artist} ${r.title} ${r.label} ${r.notes || ''}`.toLowerCase().includes(query);
+      });
+
+      // Update Summary Stats
+      const uniqueArtists = new Set(state.releases.map(r => r.artist.trim()));
+      const totalPlays = state.releases.reduce((sum, r) => sum + (r.playCount || 0), 0);
+      document.getElementById('stat-total-releases').textContent = state.releases.length;
+      document.getElementById('stat-total-artists').textContent = uniqueArtists.size;
+      document.getElementById('stat-total-played').textContent = totalPlays;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="text-xs opacity-60 text-center py-8">Keine Treffer in der Sammlung.</p>`;
+        return;
+      }
+
+      if (state.settings.collectionGrouping === 'artist') {
+        // Group by Artist
+        const groups = {};
+        filtered.forEach(r => {
+          if (!groups[r.artist]) groups[r.artist] = [];
+          groups[r.artist].push(r);
+        });
+
+        const sortedArtists = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+        container.innerHTML = sortedArtists.map(artist => {
+          const items = groups[artist];
+          const artistStars = state.artistRatings[artist] || 3;
+          const artistEnc = encodeURIComponent(artist);
+
+          const releasesHtml = items.map(r => {
+            const isExpanded = expandedReleaseIds.has(r.id);
+            const isHighlighted = highlightedReleaseId === r.id;
+            const hasNote = Boolean(r.notes && r.notes.trim());
+
+            return `
+              <div id="release-card-${r.id}" class="py-2.5 border-t border-obsidian/10 dark:border-offwhite/10 transition-all ${r.excluded ? 'opacity-45' : ''} ${isHighlighted ? 'ring-2 ring-signal bg-signal/5 px-2 -mx-2 rounded-sm' : ''}">
+                <div class="flex items-center justify-between gap-2.5">
+                  <button type="button" onclick="toggleReleaseExpand('${r.id}')" class="w-11 h-11 shrink-0 border border-obsidian/15 dark:border-offwhite/15 overflow-hidden bg-neutral-900 rounded-sm">
+                    ${renderMiniThumbnail(r)}
+                  </button>
+                  <div onclick="toggleReleaseExpand('${r.id}')" class="min-w-0 flex-1 cursor-pointer">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-semibold truncate">${r.title}</span>
+                      ${r.stackPlayed ? '<span class="text-[9px] font-mono px-1 bg-obsidian/10 dark:bg-offwhite/15 uppercase shrink-0">Gehört</span>' : ''}
+                      ${hasNote ? '<span class="text-[9px] font-mono px-1 border border-signal text-signal uppercase shrink-0">Notiz</span>' : ''}
+                    </div>
+                    <div class="text-[10px] font-mono opacity-60 truncate">
+                      ${r.released || '—'} • ${normalizeFormatCategory(r.format)} • ${r.playCount || 0}×
+                    </div>
+                    ${hasNote && !isExpanded ? `<div class="text-[11px] opacity-70 truncate italic mt-0.5">„${r.notes.trim()}“</div>` : ''}
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    ${renderStars(r.rating || 3, `onclick="setAlbumRating('${r.id}', {val})"`)}
+                    <button type="button" onclick="toggleReleaseExpand('${r.id}')" title="Notiz & Details" class="px-1.5 py-1 text-[10px] font-mono border border-obsidian/20 dark:border-offwhite/20 rounded-sm hover:border-signal">
+                      ${isExpanded ? '▲' : '✎'}
+                    </button>
+                    <button type="button" onclick="toggleReleaseExclude('${r.id}')" title="${r.excluded ? 'Aktivieren' : 'Ausschließen'}" class="px-1.5 py-1 text-[10px] font-mono border border-obsidian/20 dark:border-offwhite/20 rounded-sm hover:border-signal">
+                      ${r.excluded ? 'Aktiv' : '✕'}
+                    </button>
+                  </div>
+                </div>
+                ${isExpanded ? renderReleaseDetailDrawer(r) : ''}
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="border border-obsidian/15 dark:border-offwhite/15 bg-white dark:bg-charcoal p-3 rounded-sm">
+              <div class="flex items-center justify-between gap-2 pb-2">
+                <div>
+                  <h3 class="text-xs font-extrabold uppercase tracking-wide">${artist}</h3>
+                  <span class="text-[10px] font-mono opacity-60">${items.length} ${items.length === 1 ? 'Release' : 'Releases'} • Artist-Gewicht:</span>
+                </div>
+                <div>
+                  ${renderStars(artistStars, `onclick="setArtistRating('${artistEnc}', {val})"`)}
+                </div>
+              </div>
+              <div>${releasesHtml}</div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        // Flat List with Cover Thumbnails & Expandable Notes
+        container.innerHTML = filtered.map(r => {
+          const isExpanded = expandedReleaseIds.has(r.id);
+          const isHighlighted = highlightedReleaseId === r.id;
+          const hasNote = Boolean(r.notes && r.notes.trim());
+
+          return `
+            <div id="release-card-${r.id}" class="border border-obsidian/15 dark:border-offwhite/15 bg-white dark:bg-charcoal p-3 rounded-sm transition-all ${r.excluded ? 'opacity-45' : ''} ${isHighlighted ? 'ring-2 ring-signal bg-signal/5' : ''}">
+              <div class="flex items-center justify-between gap-2.5">
+                <button type="button" onclick="toggleReleaseExpand('${r.id}')" class="w-12 h-12 shrink-0 border border-obsidian/15 dark:border-offwhite/15 overflow-hidden bg-neutral-900 rounded-sm">
+                  ${renderMiniThumbnail(r)}
+                </button>
+                <div onclick="toggleReleaseExpand('${r.id}')" class="min-w-0 flex-1 cursor-pointer">
+                  <div class="text-[10px] font-mono uppercase opacity-65 truncate">${r.artist}</div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-bold truncate">${r.title}</span>
+                    ${hasNote ? '<span class="text-[9px] font-mono px-1 border border-signal text-signal uppercase shrink-0">Notiz</span>' : ''}
+                  </div>
+                  <div class="text-[10px] font-mono opacity-60 mt-0.5">
+                    ${r.released || '—'} • ${normalizeFormatCategory(r.format)} • ${r.playCount || 0}×
+                  </div>
+                  ${hasNote && !isExpanded ? `<div class="text-[11px] opacity-70 truncate italic mt-0.5">„${r.notes.trim()}“</div>` : ''}
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  ${renderStars(r.rating || 3, `onclick="setAlbumRating('${r.id}', {val})"`)}
+                  <button type="button" onclick="toggleReleaseExpand('${r.id}')" title="Notiz & Details" class="px-1.5 py-1 text-[10px] font-mono border border-obsidian/20 dark:border-offwhite/20 rounded-sm hover:border-signal">
+                    ${isExpanded ? '▲' : '✎'}
+                  </button>
+                  <button type="button" onclick="toggleReleaseExclude('${r.id}')" class="px-1.5 py-1 text-[10px] font-mono border border-obsidian/20 dark:border-offwhite/20 rounded-sm">
+                    ${r.excluded ? 'Aktiv' : '✕'}
+                  </button>
+                </div>
+              </div>
+              ${isExpanded ? renderReleaseDetailDrawer(r) : ''}
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    /**
+     * ============================================================================
+     * DISCOGS CSV PARSER, LAZY COVER FETCHER & FULL PAGINATED API SYNC
+     * ============================================================================
+     */
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let field = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const next = text[i + 1];
+
+        if (inQuotes) {
+          if (c === '"' && next === '"') {
+            field += '"';
+            i++;
+          } else if (c === '"') {
+            inQuotes = false;
+          } else {
+            field += c;
+          }
+        } else {
+          if (c === '"') {
+            inQuotes = true;
+          } else if (c === ',') {
+            row.push(field.trim());
+            field = '';
+          } else if (c === '\r' && next === '\n') {
+            row.push(field.trim());
+            rows.push(row);
+            row = [];
+            field = '';
+            i++;
+          } else if (c === '\n' || c === '\r') {
+            row.push(field.trim());
+            rows.push(row);
+            row = [];
+            field = '';
+          } else {
+            field += c;
+          }
+        }
+      }
+      if (field.length > 0 || row.length > 0) {
+        row.push(field.trim());
+        rows.push(row);
+      }
+      return rows.filter(r => r.some(cell => cell !== ''));
+    }
+
+    function importDiscogsCSV(csvText, mode = 'replace') {
+      const rows = parseCSV(csvText);
+      if (rows.length < 2) {
+        showToast('CSV-Datei scheint leer oder ungültig zu sein.');
+        return;
+      }
+
+      const headers = rows[0].map(h => h.toLowerCase().trim());
+      const idxArtist = headers.indexOf('artist');
+      const idxTitle = headers.indexOf('title');
+      const idxLabel = headers.indexOf('label');
+      const idxFormat = headers.indexOf('format');
+      const idxRating = headers.indexOf('rating');
+      const idxReleased = headers.indexOf('released');
+      const idxReleaseId = headers.indexOf('release_id');
+
+      if (idxArtist === -1 || idxTitle === -1) {
+        showToast('Spalten "Artist" und "Title" nicht in CSV gefunden.');
+        return;
+      }
+
+      // Preserve existing covers/plays by release_id if available
+      const previousByReleaseId = new Map();
+      state.releases.forEach(old => {
+        if (old.releaseId) previousByReleaseId.set(String(old.releaseId), old);
+      });
+
+      const imported = [];
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i];
+        const artist = (cols[idxArtist] || '').replace(/\s*\(\d+\)$/, '').trim();
+        const title = (cols[idxTitle] || '').trim();
+        if (!artist || !title) continue;
+
+        const rawRating = idxRating !== -1 ? parseInt(cols[idxRating], 10) : 0;
+        const rating = (rawRating >= 1 && rawRating <= 5) ? rawRating : 3;
+        const released = idxReleased !== -1 ? (parseInt(cols[idxReleased], 10) || '') : '';
+        const rawRelId = idxReleaseId !== -1 ? (cols[idxReleaseId] || '').trim() : '';
+        const relId = rawRelId ? `dc-${rawRelId}-${i}` : `csv-${Date.now()}-${i}`;
+        const prev = rawRelId ? previousByReleaseId.get(rawRelId) : null;
+
+        imported.push({
+          id: relId,
+          releaseId: rawRelId,
+          artist,
+          title,
+          label: idxLabel !== -1 ? (cols[idxLabel] || '') : '',
+          format: idxFormat !== -1 ? (cols[idxFormat] || 'Vinyl') : 'Vinyl',
+          released,
+          rating: prev ? prev.rating : rating,
+          coverUrl: prev ? (prev.coverUrl || '') : '',
+          notes: prev ? (prev.notes || '') : '',
+          playCount: prev ? (prev.playCount || 0) : 0,
+          lastPlayedAt: prev ? prev.lastPlayedAt : null,
+          stackPlayed: prev ? Boolean(prev.stackPlayed) : false,
+          excluded: prev ? Boolean(prev.excluded) : false
+        });
+      }
+
+      if (imported.length === 0) {
+        showToast('Keine gültigen Einträge in der CSV gefunden.');
+        return;
+      }
+
+      if (mode === 'replace') {
+        state.releases = imported;
+        state.artistRatings = {};
+      } else {
+        const existingKeys = new Set(state.releases.map(r => `${r.releaseId}|${r.artist}|${r.title}`));
+        imported.forEach(item => {
+          const key = `${item.releaseId}|${item.artist}|${item.title}`;
+          if (!existingKeys.has(key)) state.releases.push(item);
+        });
+      }
+
+      // Initialize default artist ratings if missing
+      state.releases.forEach(r => {
+        if (!state.artistRatings[r.artist]) {
+          state.artistRatings[r.artist] = r.rating || 3;
+        }
+      });
+
+      failedCoverReleaseIds.clear();
+      state.currentSelection = null;
+      state.sessionSkippedIds = [];
+      saveState();
+      renderAll();
+      updateCoverQueueUI();
+
+      // Automatically start polite background cover fetching if release_ids are present
+      const missingWithId = state.releases.filter(r => !r.coverUrl && r.releaseId);
+      if (missingWithId.length > 0) {
+        startCoverQueue();
+        showToast(`${imported.length} Tonträger importiert. Lade ${missingWithId.length} Cover im Hintergrund...`);
+      } else {
+        showToast(`${imported.length} Tonträger erfolgreich importiert.`);
+      }
+      switchTab('spin');
+    }
+
+    /**
+     * Fetches a single release cover from Discogs API via release_id
+     */
+    async function fetchCoverForRelease(internalId, rerenderSelection = false) {
+      const rel = state.releases.find(r => r.id === internalId);
+      if (!rel || !rel.releaseId || rel.coverUrl) return Boolean(rel && rel.coverUrl);
+
+      const token = getDiscogsToken();
+      const baseUrl = `https://api.discogs.com/releases/${encodeURIComponent(rel.releaseId)}`;
+      const url = token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
+
+      try {
+        const resp = await fetch(url, {
+          headers: { 'Accept': 'application/json' }
+        });
+
+        if (resp.status === 429) {
+          // Rate limit hit: signal caller to pause/backoff
+          return 'RATE_LIMIT';
+        }
+        if (!resp.ok) {
+          failedCoverReleaseIds.add(rel.releaseId);
+          return false;
+        }
+
+        const data = await resp.json();
+        const images = Array.isArray(data.images) ? data.images : [];
+        const primary = images.find(img => img.type === 'primary') || images[0];
+        const foundUrl = (primary && (primary.uri || primary.uri150)) || data.thumb || '';
+
+        if (foundUrl) {
+          // Apply cover to all copies sharing the same releaseId
+          state.releases.forEach(item => {
+            if (item.releaseId === rel.releaseId) {
+              item.coverUrl = foundUrl;
+            }
+          });
+          saveState();
+          if (rerenderSelection && state.currentSelection && state.currentSelection.release.releaseId === rel.releaseId) {
+            state.currentSelection.release.coverUrl = foundUrl;
+            renderSelectedResult();
+          }
+          return true;
+        } else {
+          failedCoverReleaseIds.add(rel.releaseId);
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function updateCoverQueueUI() {
+      const box = document.getElementById('cover-queue-box');
+      const label = document.getElementById('cover-queue-label');
+      const pctEl = document.getElementById('cover-queue-percent');
+      const bar = document.getElementById('cover-queue-bar');
+      const toggleBtn = document.getElementById('btn-cover-queue-toggle');
+      const headerBadge = document.getElementById('header-cover-sync-badge');
+
+      const withId = state.releases.filter(r => Boolean(r.releaseId));
+      if (withId.length === 0) {
+        box.classList.add('hidden');
+        headerBadge.classList.add('hidden');
+        return;
+      }
+
+      box.classList.remove('hidden');
+      const loadedCount = withId.filter(r => Boolean(r.coverUrl)).length;
+      const pendingCount = withId.filter(r => !r.coverUrl && !failedCoverReleaseIds.has(r.releaseId)).length;
+      const pct = Math.round((loadedCount / withId.length) * 100);
+
+      label.textContent = coverQueueRunning
+        ? `Lade Cover: ${loadedCount} / ${withId.length} (${pendingCount} offen)`
+        : `Cover-Cache: ${loadedCount} / ${withId.length} geladen`;
+      pctEl.textContent = `${pct}%`;
+      bar.style.width = `${pct}%`;
+
+      if (coverQueueRunning) {
+        toggleBtn.textContent = 'Pausieren';
+        headerBadge.classList.remove('hidden');
+      } else {
+        toggleBtn.textContent = pendingCount > 0 ? `Cover nachladen (${pendingCount})` : 'Alle Cover geprüft';
+        headerBadge.classList.add('hidden');
+      }
+    }
+
+    function stopCoverQueue() {
+      coverQueueRunning = false;
+      clearTimeout(coverQueueTimer);
+      coverQueueTimer = null;
+      updateCoverQueueUI();
+    }
+
+    function startCoverQueue() {
+      if (coverQueueRunning) return;
+      coverQueueRunning = true;
+      updateCoverQueueUI();
+
+      const processNext = async () => {
+        if (!coverQueueRunning) return;
+
+        const nextRelease = state.releases.find(
+          r => r.releaseId && !r.coverUrl && !failedCoverReleaseIds.has(r.releaseId)
+        );
+
+        if (!nextRelease) {
+          stopCoverQueue();
+          showToast('Hintergrund-Cover-Sync abgeschlossen.');
+          return;
+        }
+
+        const res = await fetchCoverForRelease(nextRelease.id, true);
+        updateCoverQueueUI();
+
+        if (!coverQueueRunning) return;
+
+        // Respect Discogs rate limits (~1.1s with token, ~2.5s without token, 10s backoff on 429)
+        let delayMs = getDiscogsToken() ? 1100 : 2500;
+        if (res === 'RATE_LIMIT') {
+          delayMs = 10000;
+          document.getElementById('cover-queue-label').textContent = 'Discogs Rate-Limit – warte 10 Sek...';
+        }
+
+        coverQueueTimer = setTimeout(processNext, delayMs);
+      };
+
+      processNext();
+    }
+
+    /**
+     * Full Paginated Discogs Collection Fetch (Loops through ALL pages, no 100-item limit)
+     */
+    async function fetchDiscogsCollection() {
+      if (fullSyncRunning) return;
+
+      const username = document.getElementById('discogs-username').value.trim();
+      const token = getDiscogsToken();
+      const preserveMeta = document.getElementById('discogs-preserve-meta').checked;
+      const progressWrap = document.getElementById('discogs-progress-wrap');
+      const progressBar = document.getElementById('discogs-progress-bar');
+      const statusEl = document.getElementById('discogs-status');
+      const fetchBtn = document.getElementById('btn-discogs-fetch');
+      const abortBtn = document.getElementById('btn-discogs-abort');
+
+      if (!username) {
+        showToast('Bitte einen Discogs-Benutzernamen eingeben.');
+        return;
+      }
+
+      localStorage.setItem(USERNAME_STORAGE_KEY, username);
+      stopCoverQueue();
+      fullSyncRunning = true;
+      fullSyncAbortFlag = false;
+
+      progressWrap.classList.remove('hidden');
+      progressBar.style.width = '5%';
+      statusEl.textContent = 'Verbinde mit Discogs API (Seite 1)...';
+      fetchBtn.disabled = true;
+      fetchBtn.classList.add('opacity-50');
+      abortBtn.classList.remove('hidden');
+
+      // Map existing user ratings & play counts by releaseId or instance_id for merging
+      const existingById = new Map();
+      const existingByReleaseId = new Map();
+      if (preserveMeta) {
+        state.releases.forEach(r => {
+          existingById.set(r.id, r);
+          if (r.releaseId) existingByReleaseId.set(String(r.releaseId), r);
+        });
+      }
+
+      const collected = [];
+      let page = 1;
+      let totalPages = 1;
+
+      try {
+        while (page <= totalPages) {
+          if (fullSyncAbortFlag) {
+            statusEl.textContent = `Abgebrochen bei Seite ${page} (${collected.length} Releases bisher geladen).`;
+            break;
+          }
+
+          const baseUrl = `https://api.discogs.com/users/${encodeURIComponent(username)}/collection/folders/0/releases?page=${page}&per_page=100&sort=added&sort_order=desc`;
+          const url = token ? `${baseUrl}&token=${encodeURIComponent(token)}` : baseUrl;
+
+          const resp = await fetch(url, {
+            headers: { 'Accept': 'application/json' }
+          });
+
+          if (resp.status === 429) {
+            statusEl.textContent = `Discogs Rate-Limit auf Seite ${page} – warte 10 Sekunden...`;
+            await sleep(10000);
+            continue; // Retry same page
+          }
+
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} (Sammlung privat oder Benutzername „${username}“ nicht gefunden)`);
+          }
+
+          const data = await resp.json();
+          const pagination = data.pagination || {};
+          totalPages = pagination.pages || 1;
+          const totalItems = pagination.items || 0;
+          const items = data.releases || [];
+
+          if (page === 1 && items.length === 0) {
+            throw new Error('Keine Releases in diesem Discogs-Account gefunden.');
+          }
+
+          items.forEach(entry => {
+            const info = entry.basic_information || {};
+            const artistName = (info.artists && info.artists[0] ? info.artists[0].name : 'Unknown Artist').replace(/\s*\(\d+\)$/, '');
+            const labelName = info.labels && info.labels[0] ? info.labels[0].name : '';
+            const formatStr = info.formats && info.formats[0] ? info.formats[0].name : 'Vinyl';
+            const dcRating = (entry.rating >= 1 && entry.rating <= 5) ? entry.rating : 3;
+            const releaseIdStr = info.id ? String(info.id) : '';
+            const internalId = `dc-api-${entry.instance_id || info.id}`;
+
+            const prev = preserveMeta
+              ? (existingById.get(internalId) || (releaseIdStr ? existingByReleaseId.get(releaseIdStr) : null))
+              : null;
+
+            collected.push({
+              id: internalId,
+              releaseId: releaseIdStr,
+              artist: artistName,
+              title: info.title || 'Untitled',
+              label: labelName,
+              format: formatStr,
+              released: info.year || '',
+              rating: prev ? prev.rating : dcRating,
+              coverUrl: info.cover_image || info.thumb || (prev ? prev.coverUrl : '') || '',
+              notes: prev ? (prev.notes || '') : '',
+              playCount: prev ? (prev.playCount || 0) : 0,
+              lastPlayedAt: prev ? prev.lastPlayedAt : null,
+              stackPlayed: prev ? Boolean(prev.stackPlayed) : false,
+              excluded: prev ? Boolean(prev.excluded) : false
+            });
+          });
+
+          const pct = Math.min(100, Math.round((page / totalPages) * 100));
+          progressBar.style.width = `${pct}%`;
+          statusEl.textContent = `Seite ${page} von ${totalPages} geladen – ${collected.length}${totalItems ? ' / ' + totalItems : ''} Releases...`;
+
+          if (page >= totalPages) break;
+          page++;
+          await sleep(1100); // Respect Discogs 60 req/min rate limit
+        }
+
+        if (collected.length > 0) {
+          state.releases = collected;
+          if (!preserveMeta) {
+            state.artistRatings = {};
+          }
+          collected.forEach(r => {
+            if (!state.artistRatings[r.artist]) {
+              state.artistRatings[r.artist] = r.rating || 3;
+            }
+          });
+
+          state.currentSelection = null;
+          state.sessionSkippedIds = [];
+          saveState();
+          renderAll();
+          updateCoverQueueUI();
+
+          if (!fullSyncAbortFlag) {
+            statusEl.textContent = `✓ Komplett: ${collected.length} Tonträger (${totalPages} ${totalPages === 1 ? 'Seite' : 'Seiten'}) von @${username} geladen.`;
+            showToast(`${collected.length} Tonträger komplett von Discogs geladen.`);
+            switchTab('spin');
+          }
+        }
+      } catch (err) {
+        statusEl.textContent = `Fehler: ${err.message}`;
+        showToast('Discogs-Abruf fehlgeschlagen.');
+      } finally {
+        fullSyncRunning = false;
+        fetchBtn.disabled = false;
+        fetchBtn.classList.remove('opacity-50');
+        abortBtn.classList.add('hidden');
+      }
+    }
+
+    /**
+     * ============================================================================
+     * RENDER & STATE SYNCHRONIZATION
+     * ============================================================================
+     */
+    function renderAll() {
+      // Apply Theme
+      const htmlEl = document.documentElement;
+      const themeLabel = document.getElementById('theme-label');
+      if (state.settings.darkMode) {
+        htmlEl.classList.add('dark');
+        themeLabel.textContent = 'Light';
+      } else {
+        htmlEl.classList.remove('dark');
+        themeLabel.textContent = 'Dark';
+      }
+
+      // Pool & Stack Indicators
+      const pool = getFilteredPool();
+      const unplayedInStack = pool.filter(r => !r.stackPlayed);
+      const playedInStack = pool.length - unplayedInStack.length;
+      const uniqueArtists = new Set(pool.map(r => r.artist.trim().toLowerCase()));
+
+      document.getElementById('header-pool-count').textContent = pool.length;
+      document.getElementById('btn-spin-count').textContent =
+        state.settings.mode === 'stack' ? unplayedInStack.length : pool.length;
+
+      document.getElementById('pool-summary-text').textContent =
+        `${pool.length} Tonträger von ${uniqueArtists.size} Künstler:innen im aktuellen Pool.`;
+
+      document.getElementById('stack-status-badge').textContent =
+        `Stapel: ${playedInStack} / ${pool.length}`;
+      document.getElementById('stack-progress-text').textContent =
+        `Noch ${unplayedInStack.length} ungehörte Alben im Stapel`;
+
+      // Mode buttons styling
+      const stackBtn = document.getElementById('mode-stack-btn');
+      const shuffleBtn = document.getElementById('mode-shuffle-btn');
+      const stackResetRow = document.getElementById('stack-reset-row');
+
+      if (state.settings.mode === 'stack') {
+        stackBtn.className = 'py-2.5 px-2 text-xs font-bold border border-obsidian dark:border-offwhite bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian rounded-sm text-left';
+        shuffleBtn.className = 'py-2.5 px-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm text-left';
+        stackResetRow.classList.remove('hidden');
+      } else {
+        shuffleBtn.className = 'py-2.5 px-2 text-xs font-bold border border-obsidian dark:border-offwhite bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian rounded-sm text-left';
+        stackBtn.className = 'py-2.5 px-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm text-left';
+        stackResetRow.classList.add('hidden');
+      }
+
+      // Sliders & Toggles
+      document.getElementById('slider-artist-balance').value = state.settings.artistBalance;
+      document.getElementById('val-artist-balance').textContent = `${state.settings.artistBalance}%`;
+
+      document.getElementById('slider-rating-weight').value = state.settings.ratingWeight;
+      document.getElementById('val-rating-weight').textContent = `${state.settings.ratingWeight}%`;
+
+      const recBtn = document.getElementById('toggle-recency');
+      recBtn.setAttribute('aria-checked', String(state.settings.recencyBonus));
+      if (state.settings.recencyBonus) {
+        recBtn.className = 'w-11 h-6 bg-signal rounded-sm p-0.5 transition-colors flex items-center justify-end';
+      } else {
+        recBtn.className = 'w-11 h-6 bg-obsidian/25 dark:bg-offwhite/25 rounded-sm p-0.5 transition-colors flex items-center justify-start';
+      }
+
+      // Format filter pills
+      document.querySelectorAll('.format-btn').forEach(btn => {
+        const fmt = btn.dataset.format;
+        if (fmt === state.settings.formatFilter) {
+          btn.className = 'format-btn py-2 text-xs font-semibold border border-obsidian dark:border-offwhite bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian rounded-sm';
+        } else {
+          btn.className = 'format-btn py-2 text-xs font-medium border border-obsidian/20 dark:border-offwhite/20 rounded-sm';
+        }
+      });
+
+      renderSelectedResult();
+      renderCollection();
+    }
+
+    function switchTab(tabName) {
+      const views = ['spin', 'collection', 'import'];
+      views.forEach(v => {
+        const sec = document.getElementById(`view-${v}`);
+        if (v === tabName) {
+          sec.classList.remove('hidden');
+        } else {
+          sec.classList.add('hidden');
+        }
+      });
+
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+          btn.className = 'nav-tab py-3 px-2 flex flex-col items-center justify-center gap-0.5 border-t-2 border-signal text-obsidian dark:text-offwhite';
+        } else {
+          btn.className = 'nav-tab py-3 px-2 flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent opacity-60 hover:opacity-100';
+        }
+      });
+
+      if (tabName === 'collection') {
+        renderCollection();
+      }
+    }
+
+    /**
+     * ============================================================================
+     * EVENT LISTENERS INITIALIZATION
+     * ============================================================================
+     */
+    window.addEventListener('DOMContentLoaded', () => {
+      loadState();
+      renderAll();
+
+      // Navigation Tabs
+      document.querySelectorAll('.nav-tab').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+      });
+
+      // Theme Toggle
+      document.getElementById('theme-toggle').addEventListener('click', () => {
+        state.settings.darkMode = !state.settings.darkMode;
+        saveState();
+        renderAll();
+      });
+
+      // Spin & Result Actions
+      document.getElementById('btn-spin').addEventListener('click', triggerSpin);
+      document.getElementById('cover-jump-btn').addEventListener('click', () => {
+        if (state.currentSelection && state.currentSelection.release) {
+          jumpToReleaseInCollection(state.currentSelection.release.id);
+        }
+      });
+      document.getElementById('btn-mark-played').addEventListener('click', handleMarkPlayed);
+      document.getElementById('btn-skip').addEventListener('click', handleSkip);
+      document.getElementById('btn-exclude').addEventListener('click', handleExclude);
+
+      // Mode Switches
+      document.getElementById('mode-stack-btn').addEventListener('click', () => {
+        state.settings.mode = 'stack';
+        saveState();
+        renderAll();
+      });
+      document.getElementById('mode-shuffle-btn').addEventListener('click', () => {
+        state.settings.mode = 'shuffle';
+        saveState();
+        renderAll();
+      });
+      document.getElementById('btn-reset-stack').addEventListener('click', () => {
+        state.releases.forEach(r => { r.stackPlayed = false; });
+        state.sessionSkippedIds = [];
+        saveState();
+        renderAll();
+        showToast('Stapel wurde zurückgesetzt.');
+      });
+
+      // Sliders & Recency Toggle
+      document.getElementById('slider-artist-balance').addEventListener('input', (e) => {
+        state.settings.artistBalance = parseInt(e.target.value, 10);
+        document.getElementById('val-artist-balance').textContent = `${state.settings.artistBalance}%`;
+        saveState();
+      });
+
+      document.getElementById('slider-rating-weight').addEventListener('input', (e) => {
+        state.settings.ratingWeight = parseInt(e.target.value, 10);
+        document.getElementById('val-rating-weight').textContent = `${state.settings.ratingWeight}%`;
+        saveState();
+      });
+
+      document.getElementById('toggle-recency').addEventListener('click', () => {
+        state.settings.recencyBonus = !state.settings.recencyBonus;
+        saveState();
+        renderAll();
+      });
+
+      // Format Filters
+      document.querySelectorAll('.format-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.settings.formatFilter = btn.dataset.format;
+          saveState();
+          renderAll();
+        });
+      });
+
+      // Extended Filters
+      document.getElementById('toggle-filters-btn').addEventListener('click', (e) => {
+        const panel = document.getElementById('extended-filters');
+        const isHidden = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden');
+        e.target.textContent = isHidden ? 'Weniger Filter' : 'Mehr Filter';
+      });
+
+      document.getElementById('decade-filter').addEventListener('change', (e) => {
+        state.settings.decadeFilter = e.target.value;
+        saveState();
+        renderAll();
+      });
+
+      document.getElementById('search-filter').addEventListener('input', (e) => {
+        state.settings.searchFilter = e.target.value;
+        renderAll();
+      });
+
+      // Collection View Controls
+      document.getElementById('collection-search').addEventListener('input', renderCollection);
+
+      document.getElementById('view-group-artist').addEventListener('click', () => {
+        state.settings.collectionGrouping = 'artist';
+        document.getElementById('view-group-artist').className = 'px-2.5 py-1.5 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian font-bold';
+        document.getElementById('view-group-flat').className = 'px-2.5 py-1.5';
+        saveState();
+        renderCollection();
+      });
+
+      document.getElementById('view-group-flat').addEventListener('click', () => {
+        state.settings.collectionGrouping = 'flat';
+        document.getElementById('view-group-flat').className = 'px-2.5 py-1.5 bg-obsidian text-offwhite dark:bg-offwhite dark:text-obsidian font-bold';
+        document.getElementById('view-group-artist').className = 'px-2.5 py-1.5';
+        saveState();
+        renderCollection();
+      });
+
+      // CSV File Upload
+      document.getElementById('csv-file-input').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById('csv-filename-label').textContent = file.name;
+        const mode = document.querySelector('input[name="csv-mode"]:checked').value;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          importDiscogsCSV(ev.target.result, mode);
+        };
+        reader.readAsText(file);
+      });
+
+      // Discogs Token Save & Saved Username Restore
+      updateTokenStatusUI();
+      const savedUser = localStorage.getItem(USERNAME_STORAGE_KEY);
+      if (savedUser) {
+        document.getElementById('discogs-username').value = savedUser;
+      }
+
+      document.getElementById('btn-save-token').addEventListener('click', () => {
+        const val = document.getElementById('discogs-token').value;
+        saveDiscogsToken(val);
+        showToast(val.trim() ? 'Discogs Token lokal gespeichert.' : 'Discogs Token entfernt.');
+      });
+
+      // Background Cover Queue Controls
+      updateCoverQueueUI();
+      document.getElementById('btn-cover-queue-toggle').addEventListener('click', () => {
+        if (coverQueueRunning) {
+          stopCoverQueue();
+          showToast('Cover-Abruf pausiert.');
+        } else {
+          failedCoverReleaseIds.clear();
+          startCoverQueue();
+        }
+      });
+
+      document.getElementById('btn-cover-cache-clear').addEventListener('click', () => {
+        stopCoverQueue();
+        failedCoverReleaseIds.clear();
+        state.releases.forEach(r => { r.coverUrl = ''; });
+        saveState();
+        renderAll();
+        updateCoverQueueUI();
+        showToast('Cover-Cache geleert (Swiss-Cover aktiv).');
+      });
+
+      // Discogs Direct API Fetch & Abort
+      document.getElementById('btn-discogs-fetch').addEventListener('click', fetchDiscogsCollection);
+      document.getElementById('btn-discogs-abort').addEventListener('click', () => {
+        fullSyncAbortFlag = true;
+      });
+
+      // JSON Backup Export
+      document.getElementById('btn-export-json').addEventListener('click', () => {
+        const blob = new Blob([JSON.stringify({
+          app: 'SpinBias',
+          exportedAt: new Date().toISOString(),
+          releases: state.releases,
+          artistRatings: state.artistRatings,
+          settings: state.settings
+        }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `spinbias-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast('JSON-Backup heruntergeladen.');
+      });
+
+      // Reset Buttons
+      document.getElementById('btn-reset-demo').addEventListener('click', () => {
+        stopCoverQueue();
+        failedCoverReleaseIds.clear();
+        initDemoData(true);
+        updateCoverQueueUI();
+      });
+      document.getElementById('btn-clear-history').addEventListener('click', () => {
+        state.releases.forEach(r => {
+          r.playCount = 0;
+          r.lastPlayedAt = null;
+          r.stackPlayed = false;
+          r.excluded = false;
+        });
+        state.sessionSkippedIds = [];
+        saveState();
+        renderAll();
+        showToast('Hör-Historie & Sperren zurückgesetzt.');
+      });
+    });
+  </script>
+</body>
+</html>
