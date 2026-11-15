@@ -1,0 +1,17 @@
+/* Gemeinsame Gestaltung für Impressum und Datenschutz */
+:root{--bg:#E6EBF2;--surface:#F4F7FB;--ink:#0F1726;--muted:#56627A;--line:#C9D2E0;--accent:#2F3BD9;--warn:#FFF1B8;--warn-ink:#4A3B00;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0C1220;--surface:#141C2E;--ink:#E7ECF6;--muted:#9AA6BF;--line:#26324A;--accent:#8C95FF;--warn:#4A3B00;--warn-ink:#FFF1B8;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0C1220;--surface:#141C2E;--ink:#E7ECF6;--muted:#9AA6BF;--line:#26324A;--accent:#8C95FF;--warn:#4A3B00;--warn-ink:#FFF1B8;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  padding-block:max(16px,env(safe-area-inset-top,0px)) calc(40px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:40rem;margin:0 auto}
+a{color:var(--accent)}
+.back{display:inline-flex;align-items:center;min-height:44px;font:500 .85rem 'JetBrains Mono',ui-monospace,Menlo,monospace}
+h1{font:700 1.8rem/1.1 'Bricolage Grotesque','Helvetica Neue',Arial,sans-serif;margin:8px 0 18px}
+h2{font:500 .78rem 'JetBrains Mono',ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:30px 0 8px}
+p,ul{margin:0 0 12px;overflow-wrap:anywhere}
+ul{padding-left:1.2em}
+.todo{background:var(--warn);color:var(--warn-ink);padding:1px 6px;border-radius:3px}
+.draft{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:.9rem;color:var(--muted)}

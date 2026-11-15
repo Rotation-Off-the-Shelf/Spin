@@ -5,7 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Rotation</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#E6EBF2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1220" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rotation">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="fonts.css">
 <style>
 /* Layout: schmale Spalte im Handyformat. Tab "Auswahl" mit großem Cover, Tab "Sammlung" zum Bewerten, Einstellungen als Sheet von unten. Eckige Kanten wie bei Plattenhüllen. */
 :root{
@@ -52,6 +61,9 @@ h1{font:700 1.35rem/1 var(--font-display);letter-spacing:-.01em;margin:0}
 .intro p{margin:0;font-size:.9rem;color:var(--muted)}
 .intro .introh{font:700 1.05rem/1.25 var(--font-display);color:var(--ink);margin-bottom:6px;text-wrap:balance}
 .introx{position:absolute;top:2px;right:2px;width:44px;height:44px;background:none;border:0;font-size:1.4rem;line-height:1;color:var(--muted);cursor:pointer}
+.legal{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font:400 .75rem/1.5 var(--font-mono)}
+.legal a{color:var(--muted);display:inline-flex;align-items:center;min-height:32px}
+.legal p{flex-basis:100%;margin:0;color:var(--muted)}
 .ghost{min-height:40px;padding:0 14px;background:transparent;border:1px solid var(--line);border-radius:4px;font-size:.9rem;font-weight:500;cursor:pointer}
 .status{font:500 .72rem/1.4 var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:2px 0 14px}
 
@@ -84,7 +96,7 @@ h1{font:700 1.35rem/1 var(--font-display);letter-spacing:-.01em;margin:0}
 .secondary{width:100%;min-height:46px;background:transparent;border:1px solid var(--line);border-radius:4px;font-size:.95rem;font-weight:500;cursor:pointer}
 button:disabled{opacity:.55;cursor:default}
 
-h2{font:600 .75rem var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:26px 0 10px}
+h2{font:500 .75rem var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:26px 0 10px}
 .strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
 .strip img{width:64px;height:64px;flex:none;display:block;object-fit:cover}
 .hint{color:var(--muted);font-size:.85rem;margin:0}
@@ -217,6 +229,7 @@ h2{font:600 .75rem var(--font-mono);letter-spacing:.08em;text-transform:uppercas
     </div>
     <div id="collList"></div>
   </div>
+  <footer class="legal"><a href="impressum.html">Impressum</a><a href="datenschutz.html">Datenschutz</a><p>Rotation ist ein unabhängiges Projekt und steht in keiner Verbindung zu Discogs. Daten und Cover stammen von Discogs.</p></footer>
 </div>
 
 <nav class="tabs" aria-label="Bereiche"><div class="in">
@@ -874,7 +887,7 @@ document.addEventListener('click',function(e){
     case 'sync-stop':syncAbort=true;break;
     case 'export':exportBackup();break;
     case 'wipe-hist':twoTap('wipeHist','Verlauf und Sperren zurücksetzen',function(){S.recs.forEach(function(r){r.plays=[];r.excluded=false});S.pile=[];S.skipped=[];S.log=[];save();renderSettings();render()});break;
-    case 'wipe-all':twoTap('wipeAll','Alles zurücksetzen und Demo laden',function(){loadDemo();ui.openA={};ui.openR={};renderSettings();drawNext(false)});break;
+    case 'wipe-all':twoTap('wipeAll','Alles zurücksetzen und Demo laden',function(){loadDemo();tset(LST,'');tset(LSU,'');ui.openA={};ui.openR={};renderSettings();drawNext(false)});break;
   }
 });
 $('scrim').addEventListener('click',closeSheet);
@@ -907,6 +920,8 @@ $('restore').addEventListener('change',function(){
 $('intro').hidden=tget(LSI)==='1';
 if(!load()){S.recs=demoRecs();S.demo=true}
 index();
+try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+try{if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}catch(e){}
 if(!S.cur||!byId.has(S.cur)){S.cur=null;S.committed=false;drawNext(false)}else render();
 window.__pz={S:function(){return S},doImport:doImport,fmtParse:fmtParse,fmtLabel:fmtLabel,renderColl:renderColl,showTab:showTab};
 })();
